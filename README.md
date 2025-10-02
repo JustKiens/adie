@@ -1,0 +1,2 @@
+# adie
+Discord AI Bot
