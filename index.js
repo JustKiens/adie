@@ -12,7 +12,7 @@ const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 const modelFlash25 = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-const modelFlash15 = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+const modelFlash15 = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -65,11 +65,16 @@ client.once("clientReady", () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
 });
 
+const SYSTEM_PROMPT = "You are a helpful friendly assistant. Answer as concisely as possible. If you don't know the answer, just say you don't know. Do not make up an answer. if asked, the bot creator is LostInDark";
+
+
 client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
 
   if (message.mentions.has(client.user)) {
-    const prompt = message.content.replace(`<@${client.user.id}>`, "").trim();
+    // Combine system prompt and user prompt
+    const userPrompt = message.content.replace(`<@${client.user.id}>`, "").trim();
+    const prompt = `${SYSTEM_PROMPT}\n\nUser: ${userPrompt}`;
 
     try {
       const waitingMsg = await message.reply("⏳ Waiting for AI response...");
