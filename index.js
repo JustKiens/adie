@@ -2,12 +2,24 @@
 import { Client, GatewayIntentBits } from "discord.js";
 import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
+import express from "express";
+
 dotenv.config();
 
 // The client picks up the API key from env var GEMINI_API_KEY
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const ai = new GoogleGenAI(GEMINI_API_KEY);
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.get("/", (req, res) => {
+  res.send("Bot is alive ✅");
+});
+
+app.listen(PORT, () => {
+  console.log(`🌐 Keep-alive server running on port ${PORT}`);
+});
 
 
 const client = new Client({
