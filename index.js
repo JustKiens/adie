@@ -1,6 +1,6 @@
 // index.js (or your bot’s main file)
 import { Client, GatewayIntentBits } from "discord.js";
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import dotenv from "dotenv";
 import express from "express";
 
@@ -8,8 +8,12 @@ dotenv.config();
 
 // The client picks up the API key from env var GEMINI_API_KEY
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const ai = new GoogleGenAI(GEMINI_API_KEY);
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
+
+const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+const modelFlash25 = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+const modelFlash15 = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -21,7 +25,6 @@ app.listen(PORT, () => {
   console.log(`🌐 Keep-alive server running on port ${PORT}`);
 });
 
-
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -29,6 +32,34 @@ const client = new Client({
     GatewayIntentBits.MessageContent,
   ],
 });
+
+// --- Retry wrapper ---
+async function generateWithRetry(model, prompt, retries = 3, delay = 2000) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const result = await model.generateContent(prompt);
+      return result.response.text();
+    } catch (err) {
+      if (i === retries - 1) throw err; // last try, fail
+      console.warn(`⚠️ Model busy (attempt ${i + 1}), retrying...`);
+      await new Promise((res) => setTimeout(res, delay));
+    }
+  }
+}
+
+// --- Try 2.5-flash first, fall back to 1.5-flash ---
+async function generateResponse(prompt) {
+  try {
+    const text = await generateWithRetry(modelFlash25, prompt);
+    console.log("✅ Response came from: gemini-2.5-flash");
+    return text;
+  } catch (err) {
+    console.warn("⚠️ gemini-2.5-flash failed, switching to gemini-1.5-flash...");
+    const text = await generateWithRetry(modelFlash15, prompt);
+    console.log("✅ Response came from: gemini-1.5-flash (fallback)");
+    return text;
+  }
+}
 
 client.once("clientReady", () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
@@ -41,31 +72,21 @@ client.on("messageCreate", async (message) => {
     const prompt = message.content.replace(`<@${client.user.id}>`, "").trim();
 
     try {
-      // Send a temporary message while waiting for AI
-      const waitingMsg = await message.reply('⏳ Waiting for AI response...');
-      const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: prompt,
-      });
-      let replyText = response.text;
-      // Try to parse as JSON and extract 'content' if present
-      try {
-        const json = JSON.parse(response.text);
-        if (json && typeof json === 'object' && json.content) {
-          replyText = json.content;
-        }
-      } catch (e) {
-        // Not JSON, use plain text
-      }
-      // Ensure replyText is a string, not empty, and <= 2000 chars
-      if (typeof replyText !== 'string') replyText = String(replyText);
-      if (!replyText.trim()) replyText = '[No response from Gemini AI]';
+      const waitingMsg = await message.reply("⏳ Waiting for AI response...");
+      let replyText = await generateResponse(prompt);
+
+      // Ensure replyText is safe for Discord
+      if (typeof replyText !== "string") replyText = String(replyText);
+      if (!replyText.trim()) replyText = "[No response from Gemini AI]";
       if (replyText.length > 2000) replyText = replyText.slice(0, 2000);
+
       await waitingMsg.edit(replyText);
       console.log("🤖 Reply sent:", replyText);
     } catch (err) {
       console.error("❌ Error calling Gemini:", err);
-      await message.reply("Sorry, I couldn’t get a response from Gemini AI.");
+      await message.reply(
+        "⚠️ Both Gemini models are overloaded. Please try again later!"
+      );
     }
   }
 });
